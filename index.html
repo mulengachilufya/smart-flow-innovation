@@ -181,6 +181,33 @@
     .esg-metric .em-val { font-size: 18px; font-weight: 700; color: var(--accent); }
     .esg-metric .em-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
+    /* ── PIPE LEAK ── */
+    #panel-pipes { grid-column: 3; grid-row: 3; }
+    .pipe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .pipe-row {
+      background: #0d1525; border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; display: flex; flex-direction: column; gap: 4px;
+      transition: border-color .4s, background .4s;
+    }
+    .pipe-row.safe     { border-color: var(--green); background: var(--safe-bg); }
+    .pipe-row.warning  { border-color: var(--yellow); background: var(--warn-bg); }
+    .pipe-row.critical { border-color: var(--red); background: var(--crit-bg); animation: blink-border 1s infinite; }
+    @keyframes blink-border { 0%,100%{border-color:var(--red)} 50%{border-color:transparent} }
+    .pipe-name { font-size: 10px; font-weight: 700; letter-spacing: .4px; }
+    .pipe-vals { display: flex; gap: 10px; align-items: baseline; }
+    .pipe-psi  { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .pipe-unit { font-size: 10px; color: var(--muted); }
+    .pipe-drop { font-size: 10px; }
+    .pipe-st   { font-size: 10px; font-weight: 600; }
+    .pipe-integrity-bar { background: #1e2d45; border-radius: 10px; height: 5px; margin-top: 4px; overflow: hidden; }
+    .pipe-integrity-fill { height: 100%; border-radius: 10px; transition: width .8s ease, background .4s; }
+    .leak-summary {
+      background: #0d1525; border-radius: 8px; padding: 10px;
+      border: 1px solid var(--border); font-size: 11px; display: flex; gap: 16px; flex-wrap: wrap;
+    }
+    .leak-summary span { color: var(--muted); }
+    .leak-summary b   { color: var(--text); }
+
     /* ── FOOTER ── */
     footer {
       text-align: center; padding: 8px; font-size: 10px; color: #2d3f5a;
@@ -320,6 +347,19 @@
       <div class="risk-track"><div class="risk-fill low" id="risk-fill" style="width:0%"></div></div>
     </div>
     <div class="trend-indicators" id="trend-chips"></div>
+  </div>
+
+
+  <!-- MODULE 7: Pipe Leak Detection -->
+  <div class="panel" id="panel-pipes" style="grid-column:3;grid-row:3">
+    <div class="panel-title"><span class="icon">🔧</span>Pipe Integrity & Leak Detection</div>
+    <div class="pipe-grid" id="pipe-grid"></div>
+    <div class="leak-summary" id="leak-summary" style="margin-top:8px">
+      <div><span>Active Leaks: </span><b id="leak-active">0</b></div>
+      <div><span>Aquifer Risk: </span><b id="leak-aquifer">LOW</b></div>
+      <div><span>Surface Water Risk: </span><b id="leak-surface">LOW</b></div>
+      <div><span>Percolation Risk: </span><b id="leak-percolation">NONE</b></div>
+    </div>
   </div>
 
 </div>
@@ -699,6 +739,7 @@ function tick() {
 
   updatePrediction();
   updateESG();
+  updatePipes();
 }
 
 // ── SIMULATION TRIGGERS ───────────────────────────────────────────────────
@@ -753,6 +794,112 @@ function exportReport() {
   const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `smart-flow-report-${Date.now()}.txt`; a.click();
+}
+
+// ── PIPE LEAK DETECTION ───────────────────────────────────────────────────
+const PIPES = [
+  { id: 'p1', name: 'Main Feed Line',        basePsi: 82, zone: 'mine' },
+  { id: 'p2', name: 'Processing Inlet',      basePsi: 74, zone: 'plant' },
+  { id: 'p3', name: 'Tailings Transfer',     basePsi: 68, zone: 'tailings' },
+  { id: 'p4', name: 'Discharge Outflow',     basePsi: 55, zone: 'discharge' },
+  { id: 'p5', name: 'Recycle Return Line',   basePsi: 61, zone: 'plant' },
+  { id: 'p6', name: 'Perimeter Containment', basePsi: 48, zone: 'tailings' },
+];
+
+const pipeState = {};
+PIPES.forEach(p => { pipeState[p.id] = { psi: p.basePsi, drop: 0, integrity: 100 }; });
+
+// Render static pipe card shells once
+(function initPipeGrid() {
+  const grid = document.getElementById('pipe-grid');
+  grid.innerHTML = PIPES.map(p => `
+    <div class="pipe-row safe" id="prow-${p.id}">
+      <div class="pipe-name">${p.name}</div>
+      <div class="pipe-vals">
+        <span class="pipe-psi" id="ppsi-${p.id}">—</span>
+        <span class="pipe-unit">PSI</span>
+        <span class="pipe-drop" id="pdrop-${p.id}"></span>
+      </div>
+      <div class="pipe-integrity-bar">
+        <div class="pipe-integrity-fill" id="pint-${p.id}" style="width:100%;background:var(--green)"></div>
+      </div>
+      <div class="pipe-st" id="pst-${p.id}"></div>
+    </div>
+  `).join('');
+})();
+
+function classifyPipe(psi, basePsi) {
+  const drop = basePsi - psi;
+  if (drop > 14) return 'critical';
+  if (drop > 6)  return 'warning';
+  return 'safe';
+}
+
+function updatePipes() {
+  let leakCount = 0;
+  let aquiferRisk = 'LOW', surfaceRisk = 'LOW', percolationRisk = 'NONE';
+
+  PIPES.forEach(p => {
+    const ps = pipeState[p.id];
+    const noise = (Math.random() - .5) * 1.2;
+
+    if (state.mode === 'pollution') {
+      if (p.zone === 'tailings' || p.zone === 'discharge') {
+        ps.psi = clamp(ps.psi - rnd(0.6, 0.2), p.basePsi - 28, p.basePsi);
+      } else {
+        ps.psi = clamp(ps.psi + noise, p.basePsi - 8, p.basePsi + 2);
+      }
+    } else if (state.mode === 'optimize') {
+      ps.psi = clamp(ps.psi + rnd(0.3, 0.1), p.basePsi - 4, p.basePsi + 1);
+    } else {
+      ps.psi = clamp(p.basePsi + noise, p.basePsi - 5, p.basePsi + 3);
+    }
+
+    ps.drop = p.basePsi - ps.psi;
+    ps.integrity = clamp(100 - (ps.drop / p.basePsi) * 100 * 3, 5, 100);
+
+    const st = classifyPipe(ps.psi, p.basePsi);
+    if (st !== 'safe') leakCount++;
+
+    // Update DOM
+    const row = document.getElementById(`prow-${p.id}`);
+    row.className = `pipe-row ${st}`;
+    document.getElementById(`ppsi-${p.id}`).textContent = ps.psi.toFixed(1);
+    const dropEl = document.getElementById(`pdrop-${p.id}`);
+    dropEl.textContent = ps.drop > 0.5 ? `▼ ${ps.drop.toFixed(1)} drop` : '✓ nominal';
+    dropEl.style.color = st === 'safe' ? 'var(--green)' : st === 'warning' ? 'var(--yellow)' : 'var(--red)';
+    const intFill = document.getElementById(`pint-${p.id}`);
+    intFill.style.width = ps.integrity + '%';
+    intFill.style.background = ps.integrity > 70 ? 'var(--green)' : ps.integrity > 40 ? 'var(--yellow)' : 'var(--red)';
+    const stEl = document.getElementById(`pst-${p.id}`);
+    stEl.textContent = st === 'safe' ? 'SEALED' : st === 'warning' ? 'PRESSURE DROP — INSPECT' : 'LEAK DETECTED';
+    stEl.style.color = st === 'safe' ? 'var(--green)' : st === 'warning' ? 'var(--yellow)' : 'var(--red)';
+
+    // Determine environmental risks from specific pipes
+    if ((p.id === 'p3' || p.id === 'p6') && st !== 'safe') {
+      percolationRisk = st === 'critical' ? 'HIGH — Aquifer percolation likely' : 'MODERATE — Monitor';
+      aquiferRisk = st === 'critical' ? 'HIGH 🔴' : 'MEDIUM 🟡';
+    }
+    if ((p.id === 'p4') && st !== 'safe') {
+      surfaceRisk = st === 'critical' ? 'HIGH 🔴' : 'MEDIUM 🟡';
+    }
+  });
+
+  document.getElementById('leak-active').textContent = leakCount;
+  document.getElementById('leak-aquifer').textContent = aquiferRisk;
+  document.getElementById('leak-surface').textContent = surfaceRisk;
+  document.getElementById('leak-percolation').textContent = percolationRisk;
+
+  // Alert on new critical pipe leaks
+  PIPES.forEach(p => {
+    const st = classifyPipe(pipeState[p.id].psi, p.basePsi);
+    const key = 'pipe_' + p.id;
+    if (alertDebounce[key] !== st) {
+      alertDebounce[key] = st;
+      if (st === 'critical') pushAlert('critical', `Pipe leak detected: ${p.name} — pressure drop ${pipeState[p.id].drop.toFixed(1)} PSI. Aquifer contamination risk.`);
+      else if (st === 'warning') pushAlert('warning', `Pressure anomaly on ${p.name} — possible micro-fracture. Integrity at ${pipeState[p.id].integrity.toFixed(0)}%.`);
+    }
+  });
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
