@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Flow — Intelligent Mine Water Management</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --panel: #111827;
+      --border: #1e2d45;
+      --accent: #0ea5e9;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --safe-bg: rgba(34,197,94,0.12);
+      --warn-bg: rgba(234,179,8,0.12);
+      --crit-bg: rgba(239,68,68,0.12);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+
+    /* ── HEADER ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px; background: var(--panel);
+      border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    header .brand { display: flex; align-items: center; gap: 10px; }
+    header .brand h1 { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+    header .brand span { font-size: 11px; color: var(--muted); }
+    .sys-status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.3)} }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    #clock { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mode-badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: rgba(14,165,233,.2); color: var(--accent); }
+
+    /* ── CONTROL BAR ── */
+    .controls {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 20px; background: #0d1525; border-bottom: 1px solid var(--border);
+    }
+    .controls label { font-size: 11px; color: var(--muted); margin-right: -4px; }
+    .btn {
+      padding: 6px 16px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 600; cursor: pointer; transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-success { background: var(--green); color: #000; }
+    .btn-neutral { background: #1e2d45; color: var(--text); }
+    .btn-accent { background: var(--accent); color: #000; }
+    .controls .spacer { flex: 1; }
+    #scenario-label { font-size: 12px; color: var(--yellow); font-weight: 600; }
+
+    /* ── GRID ── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 12px; padding: 12px 16px;
+    }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .panel-title {
+      font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+      color: var(--muted); display: flex; align-items: center; gap: 6px;
+    }
+    .panel-title .icon { font-size: 14px; }
+
+    /* ── WATER QUALITY ── */
+    #panel-quality { grid-column: 1; grid-row: 1; }
+    .metrics-row { display: flex; gap: 8px; }
+    .metric-card {
+      flex: 1; background: #0d1525; border-radius: 8px; padding: 10px 8px;
+      text-align: center; border: 1px solid var(--border); transition: border-color .4s;
+    }
+    .metric-card.safe  { border-color: var(--green); background: var(--safe-bg); }
+    .metric-card.warning { border-color: var(--yellow); background: var(--warn-bg); }
+    .metric-card.critical { border-color: var(--red); background: var(--crit-bg); }
+    .metric-label { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .metric-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .metric-unit { font-size: 10px; color: var(--muted); }
+    .metric-status { font-size: 10px; font-weight: 600; margin-top: 4px; }
+    .status-safe { color: var(--green); }
+    .status-warning { color: var(--yellow); }
+    .status-critical { color: var(--red); }
+    .chart-wrap { position: relative; height: 130px; }
+
+    /* ── CONSUMPTION ── */
+    #panel-consumption { grid-column: 2; grid-row: 1; }
+    .consumption-stats { display: flex; gap: 8px; }
+    .stat-box {
+      flex: 1; background: #0d1525; border-radius: 8px; padding: 10px 8px;
+      text-align: center; border: 1px solid var(--border);
+    }
+    .stat-box .val { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .stat-box .lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .recycle-bar-wrap { background: #0d1525; border-radius: 8px; padding: 10px; border: 1px solid var(--border); }
+    .recycle-bar-label { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; }
+    .bar-track { background: #1e2d45; border-radius: 20px; height: 10px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 20px; background: linear-gradient(90deg, var(--accent), var(--green)); transition: width .8s ease; }
+
+    /* ── MAP ── */
+    #panel-map { grid-column: 3; grid-row: 1 / 3; }
+    #map { height: 340px; border-radius: 8px; border: 1px solid var(--border); }
+
+    /* ── ALERTS ── */
+    #panel-alerts { grid-column: 1; grid-row: 2; }
+    .alert-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+    .alert-item {
+      padding: 8px 10px; border-radius: 6px; font-size: 11px; display: flex;
+      align-items: flex-start; gap: 8px; animation: fadeIn .4s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+    .alert-item.warning { background: var(--warn-bg); border-left: 3px solid var(--yellow); }
+    .alert-item.critical { background: var(--crit-bg); border-left: 3px solid var(--red); }
+    .alert-item.safe    { background: var(--safe-bg); border-left: 3px solid var(--green); }
+    .alert-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+    .alert-time { font-size: 10px; color: var(--muted); white-space: nowrap; margin-left: auto; }
+    .no-alerts { color: var(--muted); font-size: 12px; text-align: center; padding: 20px 0; }
+
+    /* ── PREDICTIVE ── */
+    #panel-predict { grid-column: 2; grid-row: 2; }
+    .predict-box {
+      background: #0d1525; border-radius: 8px; padding: 12px;
+      border: 1px solid var(--border); flex: 1;
+    }
+    .predict-horizon { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+    .predict-insight {
+      font-size: 13px; line-height: 1.6; color: var(--text);
+      font-style: italic; border-left: 3px solid var(--accent); padding-left: 10px;
+    }
+    .predict-insight.warn  { border-color: var(--yellow); }
+    .predict-insight.crit  { border-color: var(--red); }
+    .risk-meter-wrap { margin-top: 12px; }
+    .risk-meter-label { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+    .risk-track { background: #1e2d45; border-radius: 20px; height: 8px; overflow: hidden; }
+    .risk-fill { height: 100%; border-radius: 20px; transition: width .8s ease, background .4s; }
+    .risk-fill.low  { background: var(--green); }
+    .risk-fill.med  { background: var(--yellow); }
+    .risk-fill.high { background: var(--red); }
+    .trend-indicators { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .trend-chip {
+      padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 600;
+      background: #1e2d45; color: var(--muted);
+    }
+    .trend-chip.up   { background: rgba(239,68,68,.15); color: var(--red); }
+    .trend-chip.down { background: rgba(34,197,94,.15); color: var(--green); }
+    .trend-chip.flat { background: #1e2d45; color: var(--muted); }
+
+    /* ── ESG ── */
+    #panel-esg { grid-column: 1 / 3; grid-row: 3; }
+    .esg-inner { display: flex; gap: 16px; align-items: center; }
+    .esg-score-ring {
+      flex-shrink: 0; width: 90px; height: 90px; position: relative;
+    }
+    svg.ring { transform: rotate(-90deg); }
+    .ring-bg { fill: none; stroke: #1e2d45; stroke-width: 8; }
+    .ring-fill { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s ease, stroke .4s; }
+    .ring-center {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      text-align: center;
+    }
+    .ring-center .score { font-size: 22px; font-weight: 700; }
+    .ring-center .lbl { font-size: 9px; color: var(--muted); }
+    .esg-metrics { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; }
+    .esg-metric {
+      background: #0d1525; border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; min-width: 120px;
+    }
+    .esg-metric .em-val { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .esg-metric .em-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center; padding: 8px; font-size: 10px; color: #2d3f5a;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      #panel-map { grid-column: 1 / 3; grid-row: auto; }
+      #panel-esg { grid-column: 1 / 3; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div style="font-size:24px">🌊</div>
+    <div>
+      <h1>SMART FLOW</h1>
+      <span>Intelligent Mine Water Management System — Copperbelt Operations</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="sys-status"><div class="pulse"></div><span id="sys-status-text">SYSTEM ONLINE</span></div>
+    <div class="mode-badge" id="mode-badge">MONITORING</div>
+    <div id="clock"></div>
+  </div>
+</header>
+
+<div class="controls">
+  <label>Simulation Controls:</label>
+  <button class="btn btn-danger" id="btn-pollute" onclick="triggerPollution()">⚠ Simulate Pollution Event</button>
+  <button class="btn btn-success" id="btn-optimize" onclick="triggerOptimize()">⚙ Optimize Water Efficiency</button>
+  <button class="btn btn-neutral" id="btn-reset" onclick="resetSystem()">↺ Reset to Baseline</button>
+  <div class="spacer"></div>
+  <span id="scenario-label"></span>
+  <button class="btn btn-accent" onclick="exportReport()">↓ Export Report</button>
+</div>
+
+<div class="grid">
+
+  <!-- MODULE 1: Water Quality -->
+  <div class="panel" id="panel-quality">
+    <div class="panel-title"><span class="icon">🧪</span>Water Quality Monitoring</div>
+    <div class="metrics-row">
+      <div class="metric-card" id="card-ph">
+        <div class="metric-label">pH Level</div>
+        <div class="metric-value" id="val-ph">—</div>
+        <div class="metric-unit">0–14 scale</div>
+        <div class="metric-status" id="status-ph"></div>
+      </div>
+      <div class="metric-card" id="card-turb">
+        <div class="metric-label">Turbidity</div>
+        <div class="metric-value" id="val-turb">—</div>
+        <div class="metric-unit">NTU</div>
+        <div class="metric-status" id="status-turb"></div>
+      </div>
+      <div class="metric-card" id="card-metal">
+        <div class="metric-label">Heavy Metals</div>
+        <div class="metric-value" id="val-metal">—</div>
+        <div class="metric-unit">mg/L</div>
+        <div class="metric-status" id="status-metal"></div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-quality"></canvas>
+    </div>
+  </div>
+
+  <!-- MODULE 2: Consumption -->
+  <div class="panel" id="panel-consumption">
+    <div class="panel-title"><span class="icon">💧</span>Water Consumption & Efficiency</div>
+    <div class="consumption-stats">
+      <div class="stat-box">
+        <div class="val" id="val-daily">—</div>
+        <div class="lbl">Daily Usage (m³)</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" id="val-recycle">—</div>
+        <div class="lbl">Recycling Rate</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" id="val-saved">—</div>
+        <div class="lbl">m³ Saved Today</div>
+      </div>
+    </div>
+    <div class="recycle-bar-wrap">
+      <div class="recycle-bar-label">
+        <span>Recycling Efficiency</span>
+        <span id="recycle-pct">—</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="recycle-bar" style="width:0%"></div></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-consumption"></canvas>
+    </div>
+  </div>
+
+  <!-- MODULE 3: Map -->
+  <div class="panel" id="panel-map">
+    <div class="panel-title"><span class="icon">🗺</span>Geographic Site Monitoring — Copperbelt Region</div>
+    <div id="map"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <span style="font-size:10px;color:var(--muted)">Legend:</span>
+      <span style="font-size:10px">🟢 Safe</span>
+      <span style="font-size:10px">🟡 Warning</span>
+      <span style="font-size:10px">🔴 Critical</span>
+    </div>
+  </div>
+
+  <!-- MODULE 4: Alerts -->
+  <div class="panel" id="panel-alerts">
+    <div class="panel-title"><span class="icon">🚨</span>Alert & Risk Detection <span id="alert-count" style="margin-left:auto;background:#1e2d45;border-radius:20px;padding:2px 8px;font-size:10px">0 active</span></div>
+    <div class="alert-list" id="alert-list">
+      <div class="no-alerts">No active alerts — system nominal</div>
+    </div>
+  </div>
+
+  <!-- MODULE 5: Predictive -->
+  <div class="panel" id="panel-predict">
+    <div class="panel-title"><span class="icon">🔮</span>Predictive Analytics</div>
+    <div class="predict-box">
+      <div class="predict-horizon">Forecast horizon: next 4 hours</div>
+      <div class="predict-insight" id="predict-text">Initializing trend analysis...</div>
+    </div>
+    <div class="risk-meter-wrap">
+      <div class="risk-meter-label">
+        <span>Contamination Risk Index</span>
+        <span id="risk-label">—</span>
+      </div>
+      <div class="risk-track"><div class="risk-fill low" id="risk-fill" style="width:0%"></div></div>
+    </div>
+    <div class="trend-indicators" id="trend-chips"></div>
+  </div>
+
+</div>
+
+<!-- MODULE 6: ESG — full width below grid -->
+<div style="padding: 0 16px 12px">
+  <div class="panel" id="panel-esg">
+    <div class="panel-title"><span class="icon">🌍</span>ESG & Environmental Impact Assessment</div>
+    <div class="esg-inner">
+      <div class="esg-score-ring">
+        <svg class="ring" viewBox="0 0 90 90" width="90" height="90">
+          <circle class="ring-bg" cx="45" cy="45" r="38"/>
+          <circle class="ring-fill" id="ring-fill" cx="45" cy="45" r="38"
+            stroke-dasharray="238.76" stroke-dashoffset="238.76" stroke="var(--green)"/>
+        </svg>
+        <div class="ring-center">
+          <div class="score" id="esg-score">—</div>
+          <div class="lbl">ESG Score</div>
+        </div>
+      </div>
+      <div class="esg-metrics">
+        <div class="esg-metric">
+          <div class="em-val" id="esg-quality">—</div>
+          <div class="em-lbl">Water Quality Index</div>
+        </div>
+        <div class="esg-metric">
+          <div class="em-val" id="esg-efficiency">—</div>
+          <div class="em-lbl">Efficiency Score</div>
+        </div>
+        <div class="esg-metric">
+          <div class="em-val" id="esg-community">—</div>
+          <div class="em-lbl">Community Risk</div>
+        </div>
+        <div class="esg-metric">
+          <div class="em-val" id="esg-compliance">—</div>
+          <div class="em-lbl">Compliance Status</div>
+        </div>
+        <div class="esg-metric">
+          <div class="em-val" id="esg-water-saved">—</div>
+          <div class="em-lbl">Total m³ Saved</div>
+        </div>
+        <div class="esg-metric">
+          <div class="em-val" id="esg-incidents">—</div>
+          <div class="em-lbl">Incidents (24h)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>Smart Flow v1.0 — Simulated Data for Demonstration Purposes — Copperbelt Mine Operations © 2026</footer>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+const state = {
+  mode: 'baseline',       // baseline | pollution | optimize
+  ph: 7.2,
+  turbidity: 18,
+  metals: 0.8,
+  dailyUsage: 4200,
+  recycleRate: 72,
+  waterSaved: 320,
+  totalSaved: 320,
+  esgScore: 84,
+  incidents: 0,
+  alerts: [],
+  history: { ph: [], turb: [], metals: [], usage: [], recycle: [] },
+  ticks: 0,
+};
+
+// ── CLOCK ─────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleString('en-ZM', {
+    weekday: 'short', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── MAP ───────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true, attributionControl: false })
+  .setView([-12.82, 28.22], 13);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 18,
+}).addTo(map);
+
+const ZONES = [
+  { id: 'mine',      label: 'Mining Extraction Area',     lat: -12.795, lng: 28.205 },
+  { id: 'plant',     label: 'Processing Plant',            lat: -12.815, lng: 28.230 },
+  { id: 'tailings',  label: 'Tailings Storage Facility',   lat: -12.840, lng: 28.195 },
+  { id: 'discharge', label: 'River Discharge Point',        lat: -12.860, lng: 28.250 },
+  { id: 'community', label: 'Downstream Community Zone',    lat: -12.895, lng: 28.270 },
+];
+
+const COLOR = { safe: '#22c55e', warning: '#eab308', critical: '#ef4444' };
+
+function makeIcon(color) {
+  return L.divIcon({
+    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};
+      border:2px solid #fff;box-shadow:0 0 8px ${color}"></div>`,
+    className: '', iconAnchor: [7, 7],
+  });
+}
+
+const markers = {};
+ZONES.forEach(z => {
+  markers[z.id] = L.marker([z.lat, z.lng], { icon: makeIcon(COLOR.safe) })
+    .addTo(map).bindTooltip(z.label, { permanent: false, className: 'leaflet-dark-tip' });
+});
+
+function updateMapZones(zoneStates) {
+  Object.entries(zoneStates).forEach(([id, st]) => {
+    markers[id]?.setIcon(makeIcon(COLOR[st]));
+  });
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────────
+const LABELS = Array.from({ length: 20 }, (_, i) => `-${20 - i}m`);
+
+function makeLineChart(canvasId, datasets) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: LABELS, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { labels: { color: '#64748b', font: { size: 10 }, boxWidth: 10 } } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#1e2d45' } },
+        y: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#1e2d45' } },
+      },
+    },
+  });
+}
+
+const qualityChart = makeLineChart('chart-quality', [
+  { label: 'pH', data: Array(20).fill(7.2), borderColor: '#0ea5e9', backgroundColor: 'rgba(14,165,233,.1)', tension: .4, borderWidth: 1.5, pointRadius: 0 },
+  { label: 'Turbidity (×0.1)', data: Array(20).fill(1.8), borderColor: '#eab308', backgroundColor: 'rgba(234,179,8,.1)', tension: .4, borderWidth: 1.5, pointRadius: 0 },
+  { label: 'Metals (×10)', data: Array(20).fill(8), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.1)', tension: .4, borderWidth: 1.5, pointRadius: 0 },
+]);
+
+const consumptionChart = makeLineChart('chart-consumption', [
+  { label: 'Usage (×100 m³)', data: Array(20).fill(42), borderColor: '#0ea5e9', backgroundColor: 'rgba(14,165,233,.1)', tension: .4, borderWidth: 1.5, pointRadius: 0 },
+  { label: 'Recycle %', data: Array(20).fill(72), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.1)', tension: .4, borderWidth: 1.5, pointRadius: 0 },
+]);
+
+// ── NOISE ─────────────────────────────────────────────────────────────────
+const rnd = (base, range) => base + (Math.random() - .5) * 2 * range;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+// ── THRESHOLD CHECKS ──────────────────────────────────────────────────────
+function classify(param, val) {
+  if (param === 'ph')      return val >= 6.5 && val <= 8.5 ? 'safe' : val >= 5.5 && val <= 9.5 ? 'warning' : 'critical';
+  if (param === 'turb')    return val < 25 ? 'safe' : val < 50 ? 'warning' : 'critical';
+  if (param === 'metals')  return val < 1.5 ? 'safe' : val < 3.0 ? 'warning' : 'critical';
+  return 'safe';
+}
+
+function overallStatus() {
+  const s = [classify('ph', state.ph), classify('turb', state.turbidity), classify('metals', state.metals)];
+  if (s.includes('critical')) return 'critical';
+  if (s.includes('warning'))  return 'warning';
+  return 'safe';
+}
+
+// ── ALERTS ────────────────────────────────────────────────────────────────
+function pushAlert(type, msg) {
+  const time = new Date().toLocaleTimeString('en-ZM', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  state.alerts.unshift({ type, msg, time });
+  if (state.alerts.length > 20) state.alerts.pop();
+  if (type !== 'safe') state.incidents++;
+  renderAlerts();
+}
+
+function renderAlerts() {
+  const list = document.getElementById('alert-list');
+  const active = state.alerts.filter(a => a.type !== 'safe');
+  document.getElementById('alert-count').textContent = `${active.length} active`;
+  if (state.alerts.length === 0) {
+    list.innerHTML = '<div class="no-alerts">No active alerts — system nominal</div>';
+    return;
+  }
+  list.innerHTML = state.alerts.map(a => `
+    <div class="alert-item ${a.type}">
+      <span class="alert-icon">${a.type === 'critical' ? '🔴' : a.type === 'warning' ? '🟡' : '🟢'}</span>
+      <span>${a.msg}</span>
+      <span class="alert-time">${a.time}</span>
+    </div>
+  `).join('');
+}
+
+// ── METRIC CARDS ──────────────────────────────────────────────────────────
+function updateCard(id, valId, statusId, val, param, fmt) {
+  const st = classify(param, val);
+  document.getElementById(id).className = `metric-card ${st}`;
+  document.getElementById(valId).textContent = fmt(val);
+  const statusEl = document.getElementById(statusId);
+  statusEl.textContent = st.toUpperCase();
+  statusEl.className = `metric-status status-${st}`;
+}
+
+// ── PREDICTIVE TEXT ───────────────────────────────────────────────────────
+function updatePrediction() {
+  const os = overallStatus();
+  const trend = state.mode === 'pollution' ? 'deteriorating' : state.mode === 'optimize' ? 'improving' : 'stable';
+  let text = '', cls = '';
+  if (state.mode === 'pollution') {
+    const hrs = (state.metals > 2 ? 1 : state.metals > 1.5 ? 2 : 3);
+    text = `At current trend, water quality will reach CRITICAL levels within ${hrs} hour${hrs > 1 ? 's' : ''}. Immediate intervention required at tailings facility.`;
+    cls = 'crit';
+  } else if (state.mode === 'optimize') {
+    text = `Optimization measures are stabilizing water quality. Projected to reach SAFE thresholds within 1–2 hours if current efficiency gains are maintained.`;
+    cls = '';
+  } else {
+    text = `All parameters are within safe operating ranges. No contamination trend detected. System conditions nominal.`;
+    cls = '';
+  }
+  const el = document.getElementById('predict-text');
+  el.textContent = text;
+  el.className = `predict-insight ${cls}`;
+
+  const riskPct = os === 'critical' ? clamp(30 + state.metals * 18, 60, 98)
+                : os === 'warning'  ? clamp(20 + state.metals * 8, 25, 59)
+                : clamp(state.metals * 8, 5, 24);
+  const riskLvl = riskPct > 59 ? 'high' : riskPct > 24 ? 'med' : 'low';
+  document.getElementById('risk-fill').style.width = riskPct + '%';
+  document.getElementById('risk-fill').className = `risk-fill ${riskLvl}`;
+  document.getElementById('risk-label').textContent = `${riskPct.toFixed(0)}% — ${riskLvl.toUpperCase()}`;
+
+  const phTrend = state.mode === 'pollution' ? 'up' : state.mode === 'optimize' ? 'down' : 'flat';
+  const turbTrend = state.mode === 'pollution' ? 'up' : state.mode === 'optimize' ? 'down' : 'flat';
+  const metalTrend = state.mode === 'pollution' ? 'up' : state.mode === 'optimize' ? 'down' : 'flat';
+  document.getElementById('trend-chips').innerHTML = [
+    { label: `pH ${phTrend === 'up' ? '↑ Decreasing' : phTrend === 'down' ? '↓ Recovering' : '→ Stable'}`, cls: phTrend === 'up' ? 'up' : phTrend === 'down' ? 'down' : 'flat' },
+    { label: `Turbidity ${turbTrend === 'up' ? '↑ Rising' : turbTrend === 'down' ? '↓ Clearing' : '→ Normal'}`, cls: turbTrend },
+    { label: `Metals ${metalTrend === 'up' ? '↑ Accumulating' : metalTrend === 'down' ? '↓ Reducing' : '→ Normal'}`, cls: metalTrend },
+    { label: `Trend: ${trend}`, cls: 'flat' },
+  ].map(c => `<span class="trend-chip ${c.cls}">${c.label}</span>`).join('');
+}
+
+// ── ESG ───────────────────────────────────────────────────────────────────
+function updateESG() {
+  const os = overallStatus();
+  const base = os === 'critical' ? 38 : os === 'warning' ? 62 : 84;
+  const effBonus = state.mode === 'optimize' ? 8 : 0;
+  state.esgScore = clamp(base + effBonus + rnd(0, 2), 0, 100);
+
+  const circumference = 238.76;
+  const offset = circumference - (state.esgScore / 100) * circumference;
+  const ring = document.getElementById('ring-fill');
+  ring.style.strokeDashoffset = offset;
+  ring.style.stroke = state.esgScore >= 75 ? '#22c55e' : state.esgScore >= 50 ? '#eab308' : '#ef4444';
+  document.getElementById('esg-score').textContent = state.esgScore.toFixed(0);
+
+  const qi = os === 'critical' ? clamp(rnd(30, 5), 0, 100) : os === 'warning' ? clamp(rnd(62, 4), 0, 100) : clamp(rnd(88, 3), 0, 100);
+  document.getElementById('esg-quality').textContent = qi.toFixed(0) + '%';
+  document.getElementById('esg-efficiency').textContent = (state.recycleRate + (state.mode === 'optimize' ? 10 : 0)).toFixed(0) + '%';
+
+  const communityRisk = os === 'critical' ? 'HIGH 🔴' : os === 'warning' ? 'MEDIUM 🟡' : 'LOW 🟢';
+  document.getElementById('esg-community').textContent = communityRisk;
+  document.getElementById('esg-compliance').textContent = os === 'critical' ? 'NON-COMPLIANT' : os === 'warning' ? 'REVIEW NEEDED' : 'COMPLIANT';
+  document.getElementById('esg-water-saved').textContent = state.totalSaved.toFixed(0) + ' m³';
+  document.getElementById('esg-incidents').textContent = state.incidents;
+}
+
+// ── MAP ZONE STATES ───────────────────────────────────────────────────────
+function computeZoneStates() {
+  const os = overallStatus();
+  if (os === 'critical') {
+    return { mine: 'warning', plant: 'warning', tailings: 'critical', discharge: 'critical', community: 'critical' };
+  } else if (os === 'warning') {
+    return { mine: 'safe', plant: 'warning', tailings: 'warning', discharge: 'warning', community: 'safe' };
+  }
+  return { mine: 'safe', plant: 'safe', tailings: 'safe', discharge: 'safe', community: 'safe' };
+}
+
+// ── MAIN TICK ─────────────────────────────────────────────────────────────
+let alertDebounce = {};
+function tick() {
+  state.ticks++;
+
+  // Generate values based on mode
+  if (state.mode === 'pollution') {
+    state.ph = clamp(state.ph - rnd(0.04, 0.02), 3.5, 7.2);
+    state.turbidity = clamp(state.turbidity + rnd(1.2, 0.5), 18, 120);
+    state.metals = clamp(state.metals + rnd(0.12, 0.04), 0.8, 8.0);
+    state.dailyUsage = clamp(state.dailyUsage + rnd(40, 10), 4200, 7000);
+    state.recycleRate = clamp(state.recycleRate - rnd(0.3, 0.1), 30, 72);
+    state.waterSaved = clamp(state.waterSaved - rnd(8, 2), 0, 320);
+  } else if (state.mode === 'optimize') {
+    state.ph = clamp(state.ph + rnd(0.05, 0.02), state.ph, 7.4);
+    state.turbidity = clamp(state.turbidity - rnd(1.0, 0.4), 8, state.turbidity);
+    state.metals = clamp(state.metals - rnd(0.08, 0.03), 0.3, state.metals);
+    state.dailyUsage = clamp(state.dailyUsage - rnd(30, 8), 2800, state.dailyUsage);
+    state.recycleRate = clamp(state.recycleRate + rnd(0.4, 0.1), state.recycleRate, 92);
+    state.waterSaved = clamp(state.waterSaved + rnd(15, 3), state.waterSaved, 600);
+    state.totalSaved += rnd(12, 2);
+  } else {
+    state.ph = clamp(rnd(7.2, 0.15), 6.8, 7.6);
+    state.turbidity = clamp(rnd(18, 3), 12, 25);
+    state.metals = clamp(rnd(0.8, 0.15), 0.4, 1.2);
+    state.dailyUsage = clamp(rnd(4200, 80), 3900, 4500);
+    state.recycleRate = clamp(rnd(72, 2), 68, 76);
+    state.waterSaved = clamp(rnd(320, 10), 295, 345);
+  }
+
+  // Update metric cards
+  updateCard('card-ph',    'val-ph',    'status-ph',    state.ph,         'ph',     v => v.toFixed(1));
+  updateCard('card-turb',  'val-turb',  'status-turb',  state.turbidity,  'turb',   v => v.toFixed(0));
+  updateCard('card-metal', 'val-metal', 'status-metal', state.metals,     'metals', v => v.toFixed(2));
+
+  // Consumption
+  document.getElementById('val-daily').textContent    = state.dailyUsage.toFixed(0);
+  document.getElementById('val-recycle').textContent  = state.recycleRate.toFixed(1) + '%';
+  document.getElementById('val-saved').textContent    = state.waterSaved.toFixed(0);
+  document.getElementById('recycle-pct').textContent  = state.recycleRate.toFixed(1) + '%';
+  document.getElementById('recycle-bar').style.width  = state.recycleRate + '%';
+
+  // Charts — push & shift
+  const push = (arr, val) => { arr.push(val); if (arr.length > 20) arr.shift(); return arr; };
+  push(qualityChart.data.datasets[0].data, state.ph);
+  push(qualityChart.data.datasets[1].data, state.turbidity / 10);
+  push(qualityChart.data.datasets[2].data, state.metals * 10);
+  push(consumptionChart.data.datasets[0].data, state.dailyUsage / 100);
+  push(consumptionChart.data.datasets[1].data, state.recycleRate);
+  qualityChart.update('none');
+  consumptionChart.update('none');
+
+  // Alerts (debounced per parameter)
+  const ph_st = classify('ph', state.ph);
+  const tb_st = classify('turb', state.turbidity);
+  const mt_st = classify('metals', state.metals);
+
+  const checkAlert = (key, st, msg) => {
+    if (alertDebounce[key] !== st) {
+      alertDebounce[key] = st;
+      if (st !== 'safe') pushAlert(st, msg);
+      else pushAlert('safe', `${key.toUpperCase()} returned to safe range.`);
+    }
+  };
+  checkAlert('pH', ph_st, `pH at ${state.ph.toFixed(1)} — acid mine drainage risk detected.`);
+  checkAlert('turb', tb_st, `Turbidity ${state.turbidity.toFixed(0)} NTU — elevated suspended particles.`);
+  checkAlert('metals', mt_st, `Heavy metal concentration ${state.metals.toFixed(2)} mg/L — exceeds safe threshold.`);
+
+  // Map
+  updateMapZones(computeZoneStates());
+
+  // Header status
+  const os = overallStatus();
+  const pulse = document.querySelector('.pulse');
+  const statusTxt = document.getElementById('sys-status-text');
+  const badge = document.getElementById('mode-badge');
+  if (os === 'critical') {
+    pulse.style.background = '#ef4444';
+    statusTxt.textContent = 'CRITICAL ALERT';
+    statusTxt.style.color = '#ef4444';
+    badge.style.background = 'rgba(239,68,68,.2)';
+    badge.style.color = '#ef4444';
+    badge.textContent = state.mode === 'pollution' ? 'POLLUTION EVENT' : 'CRITICAL';
+  } else if (os === 'warning') {
+    pulse.style.background = '#eab308';
+    statusTxt.textContent = 'WARNING';
+    statusTxt.style.color = '#eab308';
+    badge.style.background = 'rgba(234,179,8,.2)';
+    badge.style.color = '#eab308';
+    badge.textContent = 'WARNING';
+  } else {
+    pulse.style.background = '#22c55e';
+    statusTxt.textContent = 'SYSTEM ONLINE';
+    statusTxt.style.color = '';
+    badge.style.background = 'rgba(14,165,233,.2)';
+    badge.style.color = '#0ea5e9';
+    badge.textContent = state.mode === 'optimize' ? 'OPTIMIZING' : 'MONITORING';
+  }
+
+  updatePrediction();
+  updateESG();
+}
+
+// ── SIMULATION TRIGGERS ───────────────────────────────────────────────────
+function triggerPollution() {
+  state.mode = 'pollution';
+  document.getElementById('scenario-label').textContent = '⚠ POLLUTION SIMULATION ACTIVE';
+  pushAlert('critical', 'Manual pollution event triggered — tailings overflow simulated.');
+}
+
+function triggerOptimize() {
+  state.mode = 'optimize';
+  document.getElementById('scenario-label').textContent = '✓ OPTIMIZATION MODE ACTIVE';
+  pushAlert('safe', 'Water efficiency optimization protocols activated.');
+}
+
+function resetSystem() {
+  state.mode = 'baseline';
+  state.ph = 7.2; state.turbidity = 18; state.metals = 0.8;
+  state.dailyUsage = 4200; state.recycleRate = 72; state.waterSaved = 320;
+  state.alerts = []; alertDebounce = {};
+  document.getElementById('scenario-label').textContent = '';
+  renderAlerts();
+  pushAlert('safe', 'System reset to baseline — all parameters nominal.');
+}
+
+// ── EXPORT REPORT ─────────────────────────────────────────────────────────
+function exportReport() {
+  const ts = new Date().toISOString();
+  const os = overallStatus();
+  const lines = [
+    'SMART FLOW — WATER MANAGEMENT SYSTEM REPORT',
+    `Generated: ${ts}`,
+    `Overall Status: ${os.toUpperCase()}`,
+    '',
+    'WATER QUALITY',
+    `  pH Level:        ${state.ph.toFixed(2)} (${classify('ph', state.ph).toUpperCase()})`,
+    `  Turbidity:       ${state.turbidity.toFixed(1)} NTU (${classify('turb', state.turbidity).toUpperCase()})`,
+    `  Heavy Metals:    ${state.metals.toFixed(3)} mg/L (${classify('metals', state.metals).toUpperCase()})`,
+    '',
+    'CONSUMPTION & EFFICIENCY',
+    `  Daily Usage:     ${state.dailyUsage.toFixed(0)} m³`,
+    `  Recycling Rate:  ${state.recycleRate.toFixed(1)}%`,
+    `  Water Saved:     ${state.waterSaved.toFixed(0)} m³`,
+    `  Total Saved:     ${state.totalSaved.toFixed(0)} m³`,
+    '',
+    `ESG SCORE: ${state.esgScore.toFixed(0)}/100`,
+    `Incidents (session): ${state.incidents}`,
+    '',
+    'ACTIVE ALERTS',
+    ...state.alerts.map(a => `  [${a.time}] ${a.type.toUpperCase()}: ${a.msg}`),
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `smart-flow-report-${Date.now()}.txt`; a.click();
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────
+tick();
+pushAlert('safe', 'Smart Flow system initialized — all sensors online.');
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
